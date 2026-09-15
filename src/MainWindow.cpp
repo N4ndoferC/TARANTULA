@@ -52,6 +52,14 @@ MainWindow::MainWindow(Tarantula* robot, QWidget* parent)
     gridLayout->setSpacing(6);
     gridLayout->setContentsMargins(5, 5, 5, 5);
 
+    comboGaitSelect_ = new QComboBox(this);
+    comboGaitSelect_->addItems({"Creep Gait", "Trote Alterno"});
+    comboGaitSelect_->setStyleSheet(
+        "QComboBox { background-color: #313244; color: #cdd6f4; border: 1px solid #45475a; border-radius: 4px; padding: 3px; font-weight: bold; }"
+        "QComboBox QAbstractItemView { background-color: #1e1e2e; color: #cdd6f4; selection-background-color: #f9e2af; selection-color: #1e1e2e; }"
+    );
+    comboGaitSelect_->setFocusPolicy(Qt::NoFocus);
+
     btnTrotUp_ = new QPushButton("▲", this);
     btnTrotDown_ = new QPushButton("▼", this);
     btnTrotLeft_ = new QPushButton("◀", this);
@@ -71,10 +79,11 @@ MainWindow::MainWindow(Tarantula* robot, QWidget* parent)
     btnTrotLeft_->setStyleSheet(btnStyle);
     btnTrotRight_->setStyleSheet(btnStyle);
 
-    gridLayout->addWidget(btnTrotUp_, 0, 1);
-    gridLayout->addWidget(btnTrotLeft_, 1, 0);
-    gridLayout->addWidget(btnTrotRight_, 1, 2);
-    gridLayout->addWidget(btnTrotDown_, 2, 1);
+    gridLayout->addWidget(comboGaitSelect_, 0, 0, 1, 3);
+    gridLayout->addWidget(btnTrotUp_, 1, 1);
+    gridLayout->addWidget(btnTrotLeft_, 2, 0);
+    gridLayout->addWidget(btnTrotRight_, 2, 2);
+    gridLayout->addWidget(btnTrotDown_, 3, 1);
 
     // Conectar señales del D-Pad físico
     connect(btnTrotUp_, &QPushButton::pressed, [this]() { keyUpPressed_ = true; updateTrotVelocity(); });
@@ -88,6 +97,12 @@ MainWindow::MainWindow(Tarantula* robot, QWidget* parent)
 
     connect(btnTrotRight_, &QPushButton::pressed, [this]() { keyRightPressed_ = true; updateTrotVelocity(); });
     connect(btnTrotRight_, &QPushButton::released, [this]() { keyRightPressed_ = false; updateTrotVelocity(); });
+
+    connect(comboGaitSelect_, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int index) {
+        if (robot_) {
+            robot_->setGaitType(index);
+        }
+    });
 
     // Extraer los botones de acción del panel derecho y reagruparlos horizontalmente junto con el D-Pad
     ui->verticalLayout_Right->removeWidget(ui->btnStartAll);
@@ -369,6 +384,11 @@ void MainWindow::updateSpiderWidget()
         bool  online  = ctrl->motor_online.load(std::memory_order_relaxed);
         float pos_rad = ctrl->last_known_pos.load(std::memory_order_relaxed);
         ui->spiderWidget->updateMotor(id, pos_rad, online);
+    }
+
+    for (int leg_id = 1; leg_id <= 4; ++leg_id) {
+        bool grounded = robot_->getLeg(leg_id).isGrounded();
+        ui->spiderWidget->updateLegGrounded(leg_id, grounded);
     }
 }
 

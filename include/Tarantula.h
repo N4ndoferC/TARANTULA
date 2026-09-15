@@ -34,6 +34,7 @@ public:
     void abortSequence();  
 
     void setGaitVelocity(float vx, float vy);
+    void setGaitType(int type);
     void startGait();
     void stopGait();
     bool isGaitActive() const;

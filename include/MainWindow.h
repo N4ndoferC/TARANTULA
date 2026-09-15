@@ -64,6 +64,7 @@ private:
 
     // Punteros para la barra de estado superior
     QComboBox*   comboComPort_{nullptr};
+    QComboBox*   comboGaitSelect_{nullptr};
 
     // Punteros para los botones del D-Pad dinámico (Cruz)
     QPushButton* btnTrotUp_{nullptr};

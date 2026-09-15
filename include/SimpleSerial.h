@@ -15,6 +15,8 @@ private:
     bool connected;
     std::string port;
     int baudrate;
+    OVERLAPPED osReader;
+    OVERLAPPED osWriter;
 
 public:
     SimpleSerial(std::string portName, int baud);

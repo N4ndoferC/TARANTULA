@@ -150,9 +150,27 @@ void Tarantula::abortSequence()
     sequence_active_.store(false);
 }
 
+// src/Tarantula.cpp
+
 void Tarantula::runStandUpSequence()
 {
+    // Guardamos si el robot ya estaba levantado antes de empezar
+    bool already_standing = feet_captured_;
     feet_captured_ = false;
+
+    if (!already_standing) {
+        for (Leg* leg : legs_) {
+            leg->captureInitialFootPosition();
+            Eigen::Vector3d target_body = leg->getInitialFootPosition();
+            target_body.z() = 0.0;
+            leg->goToBodyPosition(target_body, 3, 5, 4);
+        }
+
+        // Esperar de forma síncrona hasta que las patas alcancen esta posición intermedia
+        for (Leg* leg : legs_) {
+            leg->waitUntilSettled(sequence_active_);
+        }
+    }
 
     for (Leg* leg : legs_) {
         leg->moveJoint(1, 0.0f, 3);
@@ -160,12 +178,10 @@ void Tarantula::runStandUpSequence()
         leg->moveJoint(3, -100.0f, 4);
     }
 
-    // Esperar de forma síncrona en este hilo secundario hasta que se asienten todas las patas
     for (Leg* leg : legs_) {
         leg->waitUntilSettled(sequence_active_);
     }
 
-    // Capturar la pose de referencia de los pies únicamente si la secuencia no fue abortada
     if (sequence_active_.load()) {
         captureFeetPositions();
     }
@@ -175,12 +191,29 @@ void Tarantula::runStandUpSequence()
 
 void Tarantula::runSitDownSequence()
 {
-    // Mandar todas las articulaciones a 0° con rigidez 4, simultáneamente
+    feet_captured_ = false; // Indicamos que ya no estamos de pie
+
+    for (Leg* leg : legs_) {
+        leg->captureInitialFootPosition();
+        Eigen::Vector3d target_body = leg->getInitialFootPosition();
+        target_body.z() = 0.0;
+        leg->goToBodyPosition(target_body, 3, 4, 4);
+    }
+
+    for (Leg* leg : legs_) {
+        leg->waitUntilSettled(sequence_active_);
+    }
+
     for (Leg* leg : legs_) {
         leg->moveJoint(1, 0.0f, 3);
         leg->moveJoint(2, 0.0f, 4);
         leg->moveJoint(3, 0.0f, 4);
     }
+    
+    for (Leg* leg : legs_) {
+        leg->waitUntilSettled(sequence_active_);
+    }
+
     sequence_active_.store(false);
 }
 
@@ -279,8 +312,10 @@ void Tarantula::tickAllLegs(uint64_t cycle_count)
     auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
 
-    // Actualizar el control del trote diagonal en tiempo real
-    gait_controller_.tick(legs_, now_ms);
+    // Actualizar el control del trote diagonal en tiempo real únicamente si el robot está levantado (pies capturados)
+    if (feet_captured_) {
+        gait_controller_.tick(legs_, now_ms);
+    }
 
     for (Leg* leg : legs_) {
         if (leg) leg->tick(now_ms, cycle_count);
@@ -290,6 +325,11 @@ void Tarantula::tickAllLegs(uint64_t cycle_count)
 void Tarantula::setGaitVelocity(float vx, float vy)
 {
     gait_controller_.setVelocity(vx, vy);
+}
+
+void Tarantula::setGaitType(int type)
+{
+    gait_controller_.setGaitType(static_cast<GaitController::GaitType>(type));
 }
 
 void Tarantula::startGait()

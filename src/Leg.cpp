@@ -114,8 +114,10 @@ void Leg::waitUntilSettled(const std::atomic<bool>& sequence_active,
 
 bool Leg::isGrounded() const
 {
-    // Para cuando tengamos implementados los sensores de efecto hall
-    return true;
+    if (leg_id_ == 1) {
+        return last_known_hall_z_.load(std::memory_order_relaxed) < -6120.0f;
+    }
+    return false;
 }
 
 float Leg::getJointAngle(int joint) const
@@ -313,11 +315,6 @@ void Leg::handleCanFrame(uint32_t can_id, const std::vector<uint8_t>& data)
             float z_val = 0.0f;
             std::memcpy(&z_val, data.data(), 4);
             last_known_hall_z_.store(z_val, std::memory_order_relaxed);
-            
-            // Si es la pata 1, imprimir los datos leídos por consola
-            if (leg_id_ == 1) {
-                std::cout << "[Pata 1] Sensor Hall Z: " << z_val << " uT\n";
-            }
         }
         return;
     }

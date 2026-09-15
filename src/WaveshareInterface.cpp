@@ -3,6 +3,7 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
+#include <algorithm>
 
 #ifdef _MSC_VER
 #include <intrin.h>
@@ -19,7 +20,7 @@ WaveshareInterface::~WaveshareInterface() {
 }
 
 bool WaveshareInterface::connect() {
-    std::cout << "🔌 Abriendo puerto " << port << "...\n";
+    std::cout << "Abriendo puerto " << port << "...\n";
     if (serial->connect()) {
         is_connected = true;
         configure_adapter_500k();
@@ -30,7 +31,7 @@ bool WaveshareInterface::connect() {
 
         return true;
     }
-    std::cout << "❌ Error critico de conexion.\n";
+    std::cout << "Error critico de conexion.\n";
     return false;
 }
 
@@ -54,7 +55,7 @@ void WaveshareInterface::close() {
 }
 
 bool WaveshareInterface::reconnectWithPort(const std::string& new_port) {
-    std::cout << "🔄 Solicitando cambio de puerto a " << new_port << "...\n";
+    std::cout << "Solicitando cambio de puerto a " << new_port << "...\n";
     close();
     
     // Eliminar el puerto anterior y crear uno nuevo de manera segura
@@ -75,7 +76,7 @@ uint8_t WaveshareInterface::calculate_checksum(const std::vector<uint8_t>& paylo
 }
 
 void WaveshareInterface::configure_adapter_500k() {
-    std::cout << "🔧 Configurando adaptador a 500 Kbps...\n";
+    std::cout << "Configurando adaptador a 500 Kbps...\n";
     std::vector<uint8_t> frame(20, 0); // Crea una trama vacía de 20 ceros
     frame[0] = Config::FRAME_HEAD_1; // 0xAA (Firma)
     frame[1] = Config::FRAME_HEAD_2; // 0x55 (Firma)
@@ -152,7 +153,7 @@ void WaveshareInterface::send_can_frame(uint32_t can_id, const std::vector<uint8
                 tx_queue.push(std::move(data_frames[i]));
             }
 
-            std::cout << "⚠️ [WaveshareInterface] Cola de envio saturada (>60 tramas). Purgadas " << start_idx << " tramas antiguas. Conservando las 12 mas recientes.\n";
+            std::cout << "[WaveshareInterface] Cola de envio saturada (>60 tramas). Purgadas " << start_idx << " tramas antiguas. Conservando las 12 mas recientes.\n";
         }
 
         tx_queue.push(std::move(frame));
@@ -212,6 +213,9 @@ bool WaveshareInterface::receive_can_frame(uint32_t& can_id, std::vector<uint8_t
 }
 
 void WaveshareInterface::txLoop() {
+    static constexpr std::chrono::microseconds TARGET_PACING_US(1000);
+    static constexpr std::chrono::microseconds MIN_SILENCE_US(500);
+
     while (tx_running.load(std::memory_order_relaxed)) {
         std::vector<uint8_t> frame;
         {
@@ -228,28 +232,36 @@ void WaveshareInterface::txLoop() {
             tx_queue.pop();
         }
 
-        // Iniciamos el temporizador antes de escribir en el puerto serie.
-        // Esto garantiza que el espaciado entre el inicio de dos tramas consecutivas sea exactamente de 1.0 ms,
-        // absorbiendo el tiempo que tarde la escritura del driver de Windows en retornar.
         auto start = std::chrono::high_resolution_clock::now();
 
         if (is_connected) {
             serial->writeBytes(frame);
         }
 
-        // Pacing físico preciso de 1500 microsegundos (1.5 ms) desde el inicio del envío de la trama.
+        auto post_write = std::chrono::high_resolution_clock::now();
+
+        // Calcular el tiempo objetivo considerando 1ms desde el inicio y 0.5ms desde el final de escritura
+        auto target_time = std::max(start + TARGET_PACING_US, post_write + MIN_SILENCE_US);
+        /*        
         // Usamos un spin-wait compatible con MSVC y MinGW GCC para evitar que el hilo ceda su turno (yield) y sea penalizado con 15ms de retraso.
         while (tx_running.load(std::memory_order_relaxed)) {
-            auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+            auto elapsed_total = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::high_resolution_clock::now() - start).count();
-            if (elapsed >= 2000) {
+            auto elapsed_silence = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::high_resolution_clock::now() - post_write).count();
+            if (elapsed_total >= TARGET_PACING_US && elapsed_silence >= MIN_SILENCE_US) {
                 break;
             }
-#if defined(_MSC_VER)
-            _mm_pause(); // Intrínseco de MSVC
-#elif defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
-            __asm__ __volatile__("pause"); // Ensamblador en línea de GCC/MinGW
-#endif
+            #if defined(_MSC_VER)
+                _mm_pause(); // Intrínseco de MSVC
+            #elif defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
+                __asm__ __volatile__("pause"); // Ensamblador en línea de GCC/MinGW
+            #endif
+        } */
+
+        // Suspender el hilo pasivamente (liberando CPU) hasta la marca de tiempo calculada
+        if (tx_running.load(std::memory_order_relaxed)) {
+            std::this_thread::sleep_until(target_time);
         }
     }
 }

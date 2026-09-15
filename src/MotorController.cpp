@@ -82,7 +82,7 @@ bool MotorController::check_timeout(int64_t now_ms, int64_t timeout_ms) {
     if (now_ms > (int64_t)last_msg && (now_ms - (int64_t)last_msg) > timeout_ms) {
         motor_online.store(false, std::memory_order_relaxed);
         active.store(false, std::memory_order_relaxed);
-        std::cout << "⚠️ [MotorController] ¡Timeout! El motor " << (int)node_id 
+        std::cout << "[MotorController] ¡Timeout! El motor " << (int)node_id
                   << " no ha respondido en " << (now_ms - (int64_t)last_msg) << " ms (limite: " 
                   << timeout_ms << " ms). Desactivando y pasando a IDLE.\n";
         return true;
@@ -150,14 +150,54 @@ MW_MIT_CTRL MotorController::build_static_mit() {
 
 void MotorController::enableSafely(int stiffness)
 {
-    if (!motor_online.load(std::memory_order_relaxed)) return;
+    if (!motor_online.load(std::memory_order_relaxed)) {
+        std::cout << "[MotorController] Error: Motor " << (int)node_id << " offline. No se puede encender.\n";
+        return;
+    }
 
-    MWSetAxisState(0, node_id, MW_AXIS_STATE_CLOSED_LOOP_CONTROL);
+    int max_retries = 3;
+    bool success = false;
+
+    for (int attempt = 1; attempt <= max_retries; ++attempt) {
+        
+        MWClearErrors(0, node_id); //Limpiar errores previos
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+        MWSetAxisState(0, node_id, MW_AXIS_STATE_CLOSED_LOOP_CONTROL); //Enviar orden de encendido
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(200)); //Esperar a que el motor responda con su Heartbeat
+
+        //Comprobar estado
+        if (!motor_online.load(std::memory_order_relaxed)) {
+            std::cout << "[MotorController] Error: Motor " << (int)node_id << " se ha desconectado.\n";
+            return;
+        }
+
+        if (motorData.heartBeat.ErrorStatus.axisError != 0) {
+            std::cout << "[MotorController] Error hardware en motor " << (int)node_id 
+                      << " (axisError: " << motorData.heartBeat.ErrorStatus.axisError << "). Reintentando...\n";
+            continue; // Reintentar limpiar errores y encender
+        }
+
+        if (motorData.heartBeat.currentState == 8) { // MW_AXIS_STATE_CLOSED_LOOP_CONTROL
+            success = true;
+            break;
+        } else {
+            std::cout << "[MotorController] Advertencia: Trama de encendido perdida para motor " << (int)node_id 
+                      << " (estado: " << (int)motorData.heartBeat.currentState << "). Reintentando (" << attempt << "/" << max_retries << ")...\n";
+        }
+    }
+
+    if (!success) {
+        std::cout << "[MotorController] Fallo critico: No se pudo encender el motor " << (int)node_id << " tras " << max_retries << " intentos.\n";
+        active.store(false);
+        return;
+    }
+
+    // Si llegamos aqui, el motor se encendio con exito
     target_kp.store(0.0f);
     target_kd.store(0.0f);
     active.store(true);
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
     pos_offset.store(last_known_pos.load() + pos_offset.load());
     target_pos.store(0.0f);

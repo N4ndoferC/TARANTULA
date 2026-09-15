@@ -18,6 +18,12 @@ void SpiderWidget::updateMotor(uint8_t id, float pos_rad, bool online)
     update(); // Forzar repintado
 }
 
+void SpiderWidget::updateLegGrounded(int leg_id, bool grounded)
+{
+    leg_grounded[leg_id] = grounded;
+    update(); // Forzar repintado
+}
+
 void SpiderWidget::paintEvent(QPaintEvent *event)
 {
     QPainter painter(this);
@@ -134,6 +140,9 @@ void SpiderWidget::drawLeg(QPainter &painter, float centerX, float centerY, floa
     painter.setBrush(kneeColor);
     painter.drawEllipse(QPointF(sx_knee, sy_knee), 5, 5); // Rodilla (X3)
     
-    painter.setBrush(QColor("#f38ba8")); // Pie (lo mantenemos rojo/rosa por defecto al no tener motor)
+    int leg_id = baseId / 10;
+    bool grounded = leg_grounded[leg_id];
+    QColor footColor = grounded ? QColor("#a6e3a1") : QColor("#f38ba8");
+    painter.setBrush(footColor);
     painter.drawEllipse(QPointF(sx_foot, sy_foot), 4, 4); // X3 (Extremo del eslabón)
 }

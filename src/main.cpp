@@ -27,7 +27,7 @@ int main(int argc, char* argv[])
     if (!comm.connect())
         std::cerr << "Error: No se pudo conectar al puerto serial. Modo OFFLINE.\n";
 
-    g_comm = &comm;  
+    g_comm = &comm;  //en motorcontroler
 
     Tarantula robot(comm);
     robot.start();

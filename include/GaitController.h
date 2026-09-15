@@ -8,6 +8,11 @@ class Leg;
 
 class GaitController {
 public:
+    enum class GaitType {
+        CREEP = 0,
+        TROT = 1
+    };
+
     GaitController();
     ~GaitController();
 
@@ -16,10 +21,13 @@ public:
     bool isActive() const;
 
     void setVelocity(float vx, float vy);
+    void setGaitType(GaitType type);
+    GaitType getGaitType() const;
     void tick(std::array<Leg*, 4>& legs, int64_t now_ms);
 
 private:
     std::atomic<bool> active_{false};
+    std::atomic<GaitType> gait_type_{GaitType::CREEP};
     std::atomic<float> target_vx_{0.0f};
     std::atomic<float> target_vy_{0.0f};
 

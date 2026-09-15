@@ -44,6 +44,16 @@ void GaitController::setVelocity(float vx, float vy)
     target_vy_.store(vy);
 }
 
+void GaitController::setGaitType(GaitType type)
+{
+    gait_type_.store(type);
+}
+
+GaitController::GaitType GaitController::getGaitType() const
+{
+    return gait_type_.load();
+}
+
 void GaitController::tick(std::array<Leg*, 4>& legs, int64_t now_ms)
 {
     if (last_time_ms_ == 0) {
@@ -70,12 +80,16 @@ void GaitController::tick(std::array<Leg*, 4>& legs, int64_t now_ms)
         return;
     }
 
+
+
     // Avanzar la fase de la marcha
     double omega = (2.0 * M_PI) / GAIT_PERIOD;
     phase_ += omega * dt;
     if (phase_ >= 2.0 * M_PI) {
         phase_ = std::fmod(phase_, 2.0 * M_PI);
     }
+
+    GaitType current_gait = gait_type_.load();
 
     // Rampa suave del factor de balanceo (sway_factor_) para evitar sacudidas
     double target_sway = (active_.load() && walking) ? 1.0 : 0.0;
@@ -85,25 +99,45 @@ void GaitController::tick(std::array<Leg*, 4>& legs, int64_t now_ms)
         sway_factor_ = std::max(target_sway, sway_factor_ - dt * SWAY_RAMP_RATE);
     }
 
-    // Calcular el balanceo activo del cuerpo (Body Sway) en función de la fase
-    double dx_sway = -SWAY_AMPLITUDE_X * sway_factor_ * std::sin(2.0 * phase_);
-    double dy_sway = -SWAY_AMPLITUDE_Y * sway_factor_ * std::cos(phase_);
+    // Calcular el balanceo activo del cuerpo (Body Sway) en función de la fase (solo para creep)
+    double dx_sway = 0.0;
+    double dy_sway = 0.0;
+    if (current_gait == GaitType::CREEP) {
+        dx_sway = -SWAY_AMPLITUDE_X * sway_factor_ * std::sin(2.0 * phase_);
+        dy_sway = -SWAY_AMPLITUDE_Y * sway_factor_ * std::cos(phase_);
+    }
 
     // Longitud del paso en X e Y
     double Sx = vx * GAIT_PERIOD;
     double Sy = vy * GAIT_PERIOD;
 
-    // Secuencia de Creep Gait (Estabilidad Estática):
-    // Cada pata pasa el 25% de la fase en vuelo (swing) y el 75% en apoyo (stance).
-    // Secuencia de oscilación ordenada para mantener siempre el polígono de sustentación:
-    // Pata 0 (RF) -> Pata 2 (BL) -> Pata 1 (FL) -> Pata 3 (BR)
-    // Desfases correspondientes en radianes:
-    double offsets[4] = {
-        0.0,            // Pata 0 (RF) -> Vuela en [0, 0.5*PI)
-        M_PI,           // Pata 1 (FL) -> Vuela en [PI, 1.5*PI)
-        1.5 * M_PI,     // Pata 2 (BL) -> Vuela en [0.5*PI, PI)
-        0.5 * M_PI      // Pata 3 (BR) -> Vuela en [1.5*PI, 2*PI)
-    };
+    // Configuración según el tipo de marcha
+    double offsets[4] = {0.0, 0.0, 0.0, 0.0};
+    double swing_duration = 0.0;
+    double stance_duration = 0.0;
+
+    if (current_gait == GaitType::CREEP) {
+        // Secuencia de Creep Gait (Estabilidad Estática):
+        // Cada pata pasa el 25% de la fase en vuelo (swing) y el 75% en apoyo (stance).
+        // Secuencia de oscilación ordenada para mantener siempre el polígono de sustentación:
+        // Pata 0 (RF) -> Pata 2 (BL) -> Pata 1 (FL) -> Pata 3 (BR)
+        offsets[0] = 0.0;            // Pata 0 (RF) -> Vuela en [0, 0.5*PI)
+        offsets[1] = M_PI;           // Pata 1 (FL) -> Vuela en [PI, 1.5*PI)
+        offsets[2] = 1.5 * M_PI;     // Pata 2 (BL) -> Vuela en [0.5*PI, PI)
+        offsets[3] = 0.5 * M_PI;     // Pata 3 (BR) -> Vuela en [1.5*PI, 2*PI)
+        swing_duration = 0.5 * M_PI;
+        stance_duration = 1.5 * M_PI;
+    } else {
+        // Secuencia de Trote Alterno (Diagonal):
+        // Cada diagonal pasa el 50% de la fase en vuelo (swing) y el 50% en apoyo (stance).
+        // Diagonal A (Pata 0 y Pata 2) vs Diagonal B (Pata 1 y Pata 3)
+        offsets[0] = 0.0;            // Pata 0 (RF)
+        offsets[1] = M_PI;           // Pata 1 (FL)
+        offsets[2] = 0.0;            // Pata 2 (BL)
+        offsets[3] = M_PI;           // Pata 3 (BR)
+        swing_duration = M_PI;
+        stance_duration = M_PI;
+    }
 
     for (int i = 0; i < 4; ++i) {
         Leg* leg = legs[i];
@@ -116,15 +150,15 @@ void GaitController::tick(std::array<Leg*, 4>& legs, int64_t now_ms)
         double y_rel = 0.0;
         double z_rel = 0.0;
 
-        if (leg_phase < 0.5 * M_PI) {
-            // ─── FASE DE VUELO (SWING - 25% del ciclo) ───
-            double sigma = leg_phase / (0.5 * M_PI); // [0, 1)
+        if (leg_phase < swing_duration) {
+            // ─── FASE DE VUELO (SWING) ───
+            double sigma = leg_phase / swing_duration; // [0, 1)
             x_rel = -Sx / 2.0 + Sx * sigma;
             y_rel = -Sy / 2.0 + Sy * sigma;
             z_rel = SWING_HEIGHT * std::sin(M_PI * sigma);
         } else {
-            // ─── FASE DE APOYO (STANCE - 75% del ciclo) ───
-            double sigma = (leg_phase - 0.5 * M_PI) / (1.5 * M_PI); // [0, 1)
+            // ─── FASE DE APOYO (STANCE) ───
+            double sigma = (leg_phase - swing_duration) / stance_duration; // [0, 1)
             x_rel = Sx / 2.0 - Sx * sigma;
             y_rel = Sy / 2.0 - Sy * sigma;
             z_rel = 0.0;
@@ -143,16 +177,31 @@ void GaitController::tick(std::array<Leg*, 4>& legs, int64_t now_ms)
 
     // ─── ALGORITMO DE FRENADO ULTRA-SUAVE (SOFT SETTLE) ───
     // Si se ha pedido detener la marcha, esperamos a que la fase esté en una zona donde
-    // la pata en vuelo esté tocando el suelo (múltiplos de 0.5*PI: 0, 0.5*PI, PI, 1.5*PI o 2*PI).
+    // la pata en vuelo esté tocando el suelo.
     // Esto garantiza que todas las patas tengan apoyo firme antes de clavar el robot.
     if (!active_.load() && !walking) {
-        double diff_0 = std::abs(phase_);
-        double diff_half_pi = std::abs(phase_ - 0.5 * M_PI);
-        double diff_pi = std::abs(phase_ - M_PI);
-        double diff_1_5_pi = std::abs(phase_ - 1.5 * M_PI);
-        double diff_2pi = std::abs(phase_ - 2.0 * M_PI);
+        bool settle = false;
+        if (current_gait == GaitType::CREEP) {
+            double diff_0 = std::abs(phase_);
+            double diff_half_pi = std::abs(phase_ - 0.5 * M_PI);
+            double diff_pi = std::abs(phase_ - M_PI);
+            double diff_1_5_pi = std::abs(phase_ - 1.5 * M_PI);
+            double diff_2pi = std::abs(phase_ - 2.0 * M_PI);
 
-        if (diff_0 < 0.15 || diff_half_pi < 0.15 || diff_pi < 0.15 || diff_1_5_pi < 0.15 || diff_2pi < 0.15) {
+            if (diff_0 < 0.15 || diff_half_pi < 0.15 || diff_pi < 0.15 || diff_1_5_pi < 0.15 || diff_2pi < 0.15) {
+                settle = true;
+            }
+        } else {
+            double diff_0 = std::abs(phase_);
+            double diff_pi = std::abs(phase_ - M_PI);
+            double diff_2pi = std::abs(phase_ - 2.0 * M_PI);
+
+            if (diff_0 < 0.15 || diff_pi < 0.15 || diff_2pi < 0.15) {
+                settle = true;
+            }
+        }
+
+        if (settle) {
             phase_ = 0.0;
             sway_factor_ = 0.0; // Resetear el factor de balanceo al estar parados
             for (int i = 0; i < 4; ++i) {
