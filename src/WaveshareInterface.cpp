@@ -24,6 +24,8 @@ bool WaveshareInterface::connect() {
     if (serial->connect()) {
         is_connected = true;
         configure_adapter_500k();
+        
+        logger.start();
 
         // Iniciar hilo de transmisión asíncrono
         tx_running = true;
@@ -37,6 +39,8 @@ bool WaveshareInterface::connect() {
 
 void WaveshareInterface::close() {
     if (is_connected) {
+        logger.stop();
+        
         // Detener hilo de transmisión asíncrono
         tx_running = false;
         tx_cv.notify_all();
@@ -50,7 +54,7 @@ void WaveshareInterface::close() {
 
         serial->close();
         is_connected = false;
-        std::cout << "🔌 Puerto cerrado.\n";
+        std::cout << "Puerto cerrado.\n";
     }
 }
 
@@ -95,6 +99,7 @@ void WaveshareInterface::configure_adapter_500k() {
 
 void WaveshareInterface::send_can_frame(uint32_t can_id, const std::vector<uint8_t>& data_bytes) {
     if (!is_connected) return;
+    logger.logTx(can_id, data_bytes);
     std::vector<uint8_t> frame(20, 0);
     frame[0] = Config::FRAME_HEAD_1; // 0xAA
     frame[1] = Config::FRAME_HEAD_2; // 0x55
@@ -190,6 +195,8 @@ bool WaveshareInterface::receive_can_frame(uint32_t& can_id, std::vector<uint8_t
                 for (int i = 0; i < length && i < 8; i++) {
                     data.push_back(rx_buffer[10 + i]);
                 }
+                
+                logger.logRx(can_id, data);
                 
                 // Eliminamos la trama procesada del buffer
                 rx_buffer.erase(rx_buffer.begin(), rx_buffer.begin() + 20);

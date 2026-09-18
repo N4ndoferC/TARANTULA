@@ -75,9 +75,12 @@ void Tarantula::enableAllLegs()
 void Tarantula::disableAllLegs()
 {
     abortSequence();
-    for (Leg* leg : legs_) {
-        if (leg) leg->disable();
-    }
+    std::thread shutdown_thread([this]() {
+        for (Leg* leg : legs_) {
+            if (leg) leg->disable();
+        }
+    });
+    shutdown_thread.detach();
 }
 
 bool Tarantula::moveLeg(int leg_id, double x, double y, double z)
@@ -156,9 +159,12 @@ void Tarantula::runStandUpSequence()
 {
     // Guardamos si el robot ya estaba levantado antes de empezar
     bool already_standing = feet_captured_;
-    feet_captured_ = false;
+    feet_captured_ = false; // Desactivamos temporalmente el control de cuerpo (sliders/caminar)
 
+    // Solo hacemos el Paso 1 (bajar al suelo) si venimos de estar acostados o apagados.
+    // Si solo estamos "reseteando la pose", nos saltamos esto para no tirarnos al suelo.
     if (!already_standing) {
+        // Paso 1: Mover los pies a la huella X,Y de "pie", pero con Z = 0 
         for (Leg* leg : legs_) {
             leg->captureInitialFootPosition();
             Eigen::Vector3d target_body = leg->getInitialFootPosition();
@@ -172,16 +178,19 @@ void Tarantula::runStandUpSequence()
         }
     }
 
+    // Paso 2: Elevar el cuerpo (o simplemente suavizar la vuelta a la postura base)
     for (Leg* leg : legs_) {
         leg->moveJoint(1, 0.0f, 3);
         leg->moveJoint(2, 20.0f, 5);
         leg->moveJoint(3, -100.0f, 4);
     }
 
+    // Esperar de forma síncrona hasta que se complete el movimiento
     for (Leg* leg : legs_) {
         leg->waitUntilSettled(sequence_active_);
     }
 
+    // Confirmamos que el robot está de pie y listo
     if (sequence_active_.load()) {
         captureFeetPositions();
     }
@@ -193,6 +202,7 @@ void Tarantula::runSitDownSequence()
 {
     feet_captured_ = false; // Indicamos que ya no estamos de pie
 
+    // Paso 1: Bajar el cuerpo hasta el suelo manteniendo los pies en el sitio (Z = 0)
     for (Leg* leg : legs_) {
         leg->captureInitialFootPosition();
         Eigen::Vector3d target_body = leg->getInitialFootPosition();
@@ -204,6 +214,7 @@ void Tarantula::runSitDownSequence()
         leg->waitUntilSettled(sequence_active_);
     }
 
+    // Paso 2: Estirar las patas hasta la posición completamente plana y horizontal
     for (Leg* leg : legs_) {
         leg->moveJoint(1, 0.0f, 3);
         leg->moveJoint(2, 0.0f, 4);

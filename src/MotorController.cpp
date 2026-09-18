@@ -90,7 +90,7 @@ bool MotorController::check_timeout(int64_t now_ms, int64_t timeout_ms) {
     return false;
 }
 
-// ✅ Firma correcta: recibe now_ms como parámetro
+// recibe now_ms como parámetro
 MW_MIT_CTRL MotorController::step_trajectory(int64_t now_ms)
 {
     float current_p = current_traj_pos.load(std::memory_order_relaxed);
@@ -99,7 +99,7 @@ MW_MIT_CTRL MotorController::step_trajectory(int64_t now_ms)
     float max_v     = traj_max_vel.load(std::memory_order_relaxed);
     float max_a     = traj_max_accel.load(std::memory_order_relaxed);
 
-    // ✅ dt real medido, con clamp de seguridad
+    // dt real medido, con clamp de seguridad
     int64_t last = last_tick_time_ms.load(std::memory_order_relaxed);  // ← nombre correcto
     float dt = (last == 0)                                              // ← "last" minúscula, coherente
                ? (float)SEND_FREQUENCY
@@ -150,11 +150,10 @@ MW_MIT_CTRL MotorController::build_static_mit() {
 
 void MotorController::enableSafely(int stiffness)
 {
-    if (!motor_online.load(std::memory_order_relaxed)) {
-        std::cout << "[MotorController] Error: Motor " << (int)node_id << " offline. No se puede encender.\n";
-        return;
-    }
-
+    // Permitir intentar encender aunque esté marcado como offline
+    // Esto es crucial porque si tiene un error de hardware, motor_online será false,
+    // y necesitamos enviar MWClearErrors para recuperarlo.
+    
     int max_retries = 3;
     bool success = false;
 
@@ -202,11 +201,36 @@ void MotorController::enableSafely(int stiffness)
     pos_offset.store(last_known_pos.load() + pos_offset.load());
     target_pos.store(0.0f);
     current_traj_pos.store(0.0f);
-    current_traj_vel.store(0.0f);                              // ✅ reset velocidad
-    last_tick_time_ms.store(0, std::memory_order_relaxed);     // ✅ reset dt
-    filtered_pos.store(pos_offset.load(std::memory_order_relaxed), std::memory_order_relaxed); // ✅ Inicializar con el offset real para evitar un salto brusco
+    current_traj_vel.store(0.0f);                              // reset velocidad
+    last_tick_time_ms.store(0, std::memory_order_relaxed);     // reset dt
+    filtered_pos.store(pos_offset.load(std::memory_order_relaxed), std::memory_order_relaxed); // Inicializar con el offset real para evitar un salto brusco
 
     applyStiffness(stiffness);
+}
+
+void MotorController::disableSafely()
+{
+    active.store(false);
+    is_trap_traj.store(false);
+    
+    int max_retries = 3;
+    bool success = false;
+    for (int attempt = 1; attempt <= max_retries; ++attempt) {
+        MWSetAxisState(0, node_id, MW_AXIS_STATE_IDLE);
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+        if (motorData.heartBeat.currentState == 1) { // MW_AXIS_STATE_IDLE
+            success = true;
+            break;
+        } else {
+            std::cout << "[MotorController] Advertencia: Trama de apagado perdida para motor " << (int)node_id 
+                      << ". Reintentando (" << attempt << "/" << max_retries << ")...\n";
+        }
+    }
+    
+    if (!success) {
+        std::cout << "[MotorController] Error: No se pudo confirmar el apagado del motor " << (int)node_id << ".\n";
+    }
 }
 
 void MotorController::applyStiffness(int stiffness)
@@ -225,7 +249,7 @@ std::pair<float, float> MotorController::stiffnessToGains(int stiffness)
     case 3:  return { 15.0f, 1.2f };
     case 4:  return { 25.0f, 1.6f };
     case 5:  return { 35.0f, 1.8f };
-    default: return { 15.0f, 1.2f };   // ✅ fallback equilibrado
+    default: return { 15.0f, 1.2f };   // fallback equilibrado
     }
 }
 
@@ -275,7 +299,7 @@ void MotorController::tick(int64_t now_ms, uint64_t cycle_count)
         }
     } else if (active.load(std::memory_order_relaxed)) {
         MW_MIT_CTRL mit = is_trap_traj.load(std::memory_order_relaxed)
-                        ? step_trajectory(now_ms)   // ✅ pasa now_ms
+                        ? step_trajectory(now_ms)   // pasa now_ms
                         : build_static_mit();
         MWMitControl(0, node_id, &mit);
         sent = true;

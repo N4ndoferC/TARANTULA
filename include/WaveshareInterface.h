@@ -1,5 +1,6 @@
 #pragma once
 #include "SimpleSerial.h"
+#include "CanLogger.h"
 #include <vector>
 #include <utility>
 #include <cstdint>
@@ -29,6 +30,8 @@ private:
     void txLoop();
 
 public:
+    CanLogger logger;
+
     WaveshareInterface(std::string portStr = "COM3", int baudRate = 2000000);
     ~WaveshareInterface();
 

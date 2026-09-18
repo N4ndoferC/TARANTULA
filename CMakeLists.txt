@@ -33,6 +33,8 @@ add_executable(TARANTULA_UI
     src/GaitController.cpp
     include/GaitController.h
     include/Config.h
+    src/CanLogger.cpp
+    include/CanLogger.h
 )
 
 target_link_libraries(TARANTULA_UI PRIVATE Qt6::Widgets)

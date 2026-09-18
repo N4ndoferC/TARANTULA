@@ -44,9 +44,7 @@ void Leg::enable()
 void Leg::disable()
 {
     for (int j = 0; j < 3; ++j) {
-        MWSetAxisState(0, motor_[j].node_id, MW_AXIS_STATE_IDLE);
-        motor_[j].active.store(false);
-        motor_[j].is_trap_traj.store(false);
+        motor_[j].disableSafely();
     }
 }
 
@@ -63,7 +61,7 @@ bool Leg::goToPosition(double x, double y, double z, int stiffness_q1, int stiff
 {
     auto angles_opt = solveIK(x, y, z, knee_up);
     if (!angles_opt.has_value()) {
-        std::cout << "⚠️ [Leg " << leg_id_ << "] solveIK fallo para local: (" << x << ", " << y << ", " << z << ")\n";
+        std::cout << " [Leg " << leg_id_ << "] solveIK fallo para local: (" << x << ", " << y << ", " << z << ")\n";
         return false;
     }
     applyAngles(angles_opt.value(), stiffness_q1, stiffness_q2, stiffness_q3, direct);
@@ -323,7 +321,6 @@ void Leg::handleCanFrame(uint32_t can_id, const std::vector<uint8_t>& data)
     int joint_idx = (motor_id % 10) - 1;
     if (joint_idx >= 0 && joint_idx < 3) {
         MotorController& ctrl = motor_[joint_idx];
-        ctrl.motor_online.store(true, std::memory_order_relaxed);
         auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
         ctrl.last_msg_time_ms.store(now_ms, std::memory_order_relaxed);
@@ -331,6 +328,23 @@ void Leg::handleCanFrame(uint32_t can_id, const std::vector<uint8_t>& data)
         if (data.size() == 8) {
             MWReceiver(0, can_id, const_cast<uint8_t*>(data.data()));
             MW_CMD_ID cmd = static_cast<MW_CMD_ID>(can_id & 0x1F);
+
+            // Comprobar errores en tiempo real
+            bool has_error = (ctrl.motorData.heartBeat.ErrorStatus.axisError != 0);
+            
+            if (!has_error) {
+                ctrl.motor_online.store(true, std::memory_order_relaxed);
+            } else {
+                ctrl.motor_online.store(false, std::memory_order_relaxed);
+                if (ctrl.active.load()) {
+                    ctrl.active.store(false);
+                    std::cerr << "[CRITICO] Motor " << (int)ctrl.node_id 
+                              << " reporta error hardware 0x" << std::hex 
+                              << ctrl.motorData.heartBeat.ErrorStatus.axisError 
+                              << std::dec << ". Desactivando.\n";
+                }
+            }
+
             if (cmd == MW_MIT_CONTROL_CMD) {
                 ctrl.update_from_mit_frame();
             } else if (cmd == MW_GET_ENCODER_ESTIMATES_CMD) {

@@ -761,7 +761,7 @@ void MainWindow::resetIndividualLegSliders()
 void MainWindow::onComPortChanged(int index)
 {
     QString port_name = QString("\\\\.\\COM%1").arg(index + 1);
-    std::cout << "🔌 Solicitando reconexión serial a: " << port_name.toStdString() << "\n";
+    std::cout << "Solicitando reconexion serial a: " << port_name.toStdString() << "\n";
     if (g_comm) {
         g_comm->reconnectWithPort(port_name.toStdString());
     }

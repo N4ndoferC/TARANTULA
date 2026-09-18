@@ -56,8 +56,8 @@ public:
 
     bool check_timeout(int64_t now_ms, int64_t timeout_ms = 4000);
     MW_MIT_CTRL step_trajectory(int64_t now_ms);    
-    
     void enableSafely(int stiffness);
+    void disableSafely();
     void applyStiffness(int stiffness);
     static std::pair<float, float> stiffnessToGains(int stiffness);
     bool isSettled(float tolerance_deg) const;
