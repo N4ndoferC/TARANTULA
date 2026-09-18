@@ -23,7 +23,6 @@ pdf_extracted.txt
 temp_mermaid.py
 Explicacion_Trapezoidal.txt
 *.html
-*.md
 
 # OS specific files
 Thumbs.db
@@ -31,5 +30,5 @@ Desktop.ini
 .DS_Store
 
 *.code-workspace
-/context/
+/context/SteadyWin GIM6010-8 Motor Manual_rev2.2.pdf
 /include/Eigen/
