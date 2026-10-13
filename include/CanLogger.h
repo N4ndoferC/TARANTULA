@@ -22,6 +22,7 @@ private:
     std::ofstream file_;
     std::queue<LogEntry> queue_;
     std::mutex mutex_;
+    std::mutex file_mutex_;
     std::condition_variable cv_;
     std::thread thread_;
     std::atomic<bool> running_;
@@ -34,6 +35,7 @@ public:
 
     void start();
     void stop();
+    void reset();
     void logTx(uint32_t can_id, const std::vector<uint8_t>& data);
     void logRx(uint32_t can_id, const std::vector<uint8_t>& data);
 };

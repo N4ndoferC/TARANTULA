@@ -43,4 +43,5 @@ public:
     // Retorna true si hay trama, y llena can_id y data
     bool receive_can_frame(uint32_t& can_id, std::vector<uint8_t>& data);
     bool connected() const { return is_connected; }
+    void resetLogger() { logger.reset(); }
 };

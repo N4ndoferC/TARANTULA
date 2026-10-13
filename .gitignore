@@ -32,3 +32,5 @@ Desktop.ini
 *.code-workspace
 /context/SteadyWin GIM6010-8 Motor Manual_rev2.2.pdf
 /include/Eigen/
+/sensores_hall/
+/context/

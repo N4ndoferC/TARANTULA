@@ -82,9 +82,12 @@ bool MotorController::check_timeout(int64_t now_ms, int64_t timeout_ms) {
     if (now_ms > (int64_t)last_msg && (now_ms - (int64_t)last_msg) > timeout_ms) {
         motor_online.store(false, std::memory_order_relaxed);
         active.store(false, std::memory_order_relaxed);
-        std::cout << "[MotorController] ¡Timeout! El motor " << (int)node_id
-                  << " no ha respondido en " << (now_ms - (int64_t)last_msg) << " ms (limite: " 
-                  << timeout_ms << " ms). Desactivando y pasando a IDLE.\n";
+        std::cerr << "\n=======================================================\n"
+                  << "[ERROR CRITICO WATCHDOG] ¡TIMEOUT EN MOTOR " << (int)node_id << "!\n"
+                  << "Sin respuesta CAN desde hace " << (now_ms - (int64_t)last_msg) << " ms "
+                  << "(Limite Watchdog: " << timeout_ms << " ms).\n"
+                  << "Marcando motor como OFFLINE y desactivando control activo.\n"
+                  << "=======================================================\n" << std::endl;
         return true;
     }
     return false;

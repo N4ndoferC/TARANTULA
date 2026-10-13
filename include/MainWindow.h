@@ -41,7 +41,9 @@ private slots:
     void on_btnSendCommandGrid_clicked();
 
     void on_btnEnableIndividual_clicked();
+    void on_btnDisableIndividual_clicked();
     void on_btnSendIndividual_clicked();
+    void on_btnResetLog_clicked();
 
     
     void on_sliderBodyX_valueChanged(int value);

@@ -33,11 +33,11 @@ public:
     Leg(int leg_id, double theta, Tarantula* parent = nullptr);
     ~Leg();
 
-   
     void enable();          
-    void disable();         
+    void disable();
     bool isEnabled() const;
     void enableJoint(int joint);
+    void disableJoint(int joint);
     void tick(int64_t now_ms, uint64_t cycle_count);
     bool isAnyMotorOnline() const;
     void sendIdleToAllMotors();

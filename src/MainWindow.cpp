@@ -300,6 +300,12 @@ void MainWindow::initTable()
     ui->tableMotors->setColumnCount(3);
     ui->tableMotors->setHorizontalHeaderLabels({"Motor", "Posición", "Rigidez"});
     ui->tableMotors->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    ui->tableMotors->verticalHeader()->setVisible(false);
+    ui->tableMotors->verticalHeader()->setDefaultSectionSize(25);
+    ui->tableMotors->setRowCount(12);
+    for (int i = 0; i < 12; ++i) {
+        ui->tableMotors->setRowHeight(i, 25);
+    }
 }
 
 
@@ -441,7 +447,32 @@ void MainWindow::on_btnEnableIndividual_clicked()
     int leg_id = id / 10;
     int joint = id % 10;
     if (leg_id >= 1 && leg_id <= 4) {
-        robot_->getLeg(leg_id).enableJoint(joint);
+        std::thread([this, leg_id, joint]() {
+            robot_->getLeg(leg_id).enableJoint(joint);
+        }).detach();
+    }
+}
+
+void MainWindow::on_btnDisableIndividual_clicked()
+{
+    bool ok;
+    int id = ui->txtMoverID->text().toInt(&ok);
+    if (!ok) return;
+
+    int leg_id = id / 10;
+    int joint = id % 10;
+    if (leg_id >= 1 && leg_id <= 4) {
+        std::thread([this, leg_id, joint]() {
+            robot_->getLeg(leg_id).disableJoint(joint);
+        }).detach();
+    }
+}
+
+void MainWindow::on_btnResetLog_clicked()
+{
+    if (g_comm) {
+        g_comm->resetLogger();
+        std::cout << "[CanLogger] Archivo can_log.csv reseteado manualmente por el usuario.\n";
     }
 }
 

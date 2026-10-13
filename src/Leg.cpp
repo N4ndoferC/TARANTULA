@@ -283,6 +283,13 @@ void Leg::enableJoint(int joint)
     }
 }
 
+void Leg::disableJoint(int joint)
+{
+    if (joint >= 1 && joint <= 3) {
+        motor_[joint - 1].disableSafely();
+    }
+}
+
 void Leg::tick(int64_t now_ms, uint64_t cycle_count)
 {
     for (int j = 0; j < 3; ++j) {

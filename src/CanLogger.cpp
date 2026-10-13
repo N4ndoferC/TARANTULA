@@ -3,7 +3,13 @@
 #include <iostream>
 #include <iomanip>
 
-CanLogger::CanLogger(const std::string& filename) : filename_(filename), running_(false) {}
+CanLogger::CanLogger(const std::string& filename) : filename_(filename), running_(false) {
+    // Asegurar que cada vez que se ejecute el programa el CSV comience limpio desde cero
+    std::ofstream f(filename_, std::ios::out | std::ios::trunc);
+    if (f.is_open()) {
+        f << "Timestamp_ms,Direction,CAN_ID,Data_Bytes,Hex_Data\n";
+    }
+}
 
 CanLogger::~CanLogger() {
     stop();
@@ -11,11 +17,14 @@ CanLogger::~CanLogger() {
 
 void CanLogger::start() {
     if (running_) return;
-    file_.open(filename_, std::ios::out | std::ios::trunc);
-    if (file_.is_open()) {
-        file_ << "Timestamp_ms,Direction,CAN_ID,Data_Bytes,Hex_Data\n";
-    } else {
-        std::cerr << "CanLogger error: no se pudo abrir " << filename_ << "\n";
+    {
+        std::lock_guard<std::mutex> f_lock(file_mutex_);
+        if (!file_.is_open()) {
+            file_.open(filename_, std::ios::out | std::ios::app);
+        }
+        if (!file_.is_open()) {
+            std::cerr << "CanLogger error: no se pudo abrir " << filename_ << "\n";
+        }
     }
     running_ = true;
     thread_ = std::thread(&CanLogger::processQueue, this);
@@ -28,8 +37,28 @@ void CanLogger::stop() {
     if (thread_.joinable()) {
         thread_.join();
     }
+    std::lock_guard<std::mutex> f_lock(file_mutex_);
     if (file_.is_open()) {
         file_.close();
+    }
+}
+
+void CanLogger::reset() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::queue<LogEntry> empty_q;
+        std::swap(queue_, empty_q);
+    }
+    std::lock_guard<std::mutex> f_lock(file_mutex_);
+    if (file_.is_open()) {
+        file_.close();
+    }
+    file_.open(filename_, std::ios::out | std::ios::trunc);
+    if (file_.is_open()) {
+        file_ << "Timestamp_ms,Direction,CAN_ID,Data_Bytes,Hex_Data\n";
+        file_.flush();
+    } else {
+        std::cerr << "CanLogger error: no se pudo resetear " << filename_ << "\n";
     }
 }
 
@@ -68,20 +97,22 @@ void CanLogger::processQueue() {
             }
         }
 
-
-        if (file_.is_open() && !batch.empty()) {
-            for (const auto& entry : batch) {
-                file_ << entry.timestamp << ","
-                      << (entry.is_tx ? "TX" : "RX") << ","
-                      << "0x" << std::hex << std::uppercase << entry.can_id << std::dec << ","
-                      << entry.data.size() << ",";
-                
-                for (size_t i = 0; i < entry.data.size(); ++i) {
-                    file_ << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << (int)entry.data[i] << " ";
+        if (!batch.empty()) {
+            std::lock_guard<std::mutex> f_lock(file_mutex_);
+            if (file_.is_open()) {
+                for (const auto& entry : batch) {
+                    file_ << entry.timestamp << ","
+                          << (entry.is_tx ? "TX" : "RX") << ","
+                          << "0x" << std::hex << std::uppercase << entry.can_id << std::dec << ","
+                          << entry.data.size() << ",";
+                    
+                    for (size_t i = 0; i < entry.data.size(); ++i) {
+                        file_ << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << (int)entry.data[i] << " ";
+                    }
+                    file_ << std::dec << "\n";
                 }
-                file_ << std::dec << "\n";
+                file_.flush(); // Asegurar que se guarda en el disco en tiempo real
             }
-            file_.flush(); // Asegurar que se guarda en el disco en tiempo real
         }
     }
 }
