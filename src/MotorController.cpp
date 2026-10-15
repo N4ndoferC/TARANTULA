@@ -1,3 +1,4 @@
+
 #include "MotorController.h"
 #include <cstring>
 #include <thread>
@@ -52,8 +53,8 @@ float MotorController::logic_to_phys(float log_pos) const {
 // ─────────────────────────────────────────────────────────────
 
 void MotorController::update_from_mit_frame() {
-    float phys_pos    = motorData.motorMIT.pos    / (float)GEAR_RATIO;
-    float phys_vel    = motorData.motorMIT.vel    / (float)GEAR_RATIO;
+    float phys_pos    = motorData.motorMIT.pos;
+    float phys_vel    = motorData.motorMIT.vel;
     float phys_torque = motorData.motorMIT.torque;
 
     float abs_log_pos = phys_to_logic(phys_pos);
@@ -83,7 +84,7 @@ bool MotorController::check_timeout(int64_t now_ms, int64_t timeout_ms) {
         motor_online.store(false, std::memory_order_relaxed);
         active.store(false, std::memory_order_relaxed);
         std::cerr << "\n=======================================================\n"
-                  << "[ERROR CRITICO WATCHDOG] ¡TIMEOUT EN MOTOR " << (int)node_id << "!\n"
+                  << "[ERROR CRITICO WATCHDOG]¡TIMEOUT EN MOTOR " << (int)node_id << "!\n"
                   << "Sin respuesta CAN desde hace " << (now_ms - (int64_t)last_msg) << " ms "
                   << "(Limite Watchdog: " << timeout_ms << " ms).\n"
                   << "Marcando motor como OFFLINE y desactivando control activo.\n"

@@ -14,6 +14,9 @@ GaitController::GaitController()
     , target_vy_(0.0f)
     , phase_(0.0)
     , last_time_ms_(0)
+    , sway_factor_(0.0)
+    , current_vx_(0.0)
+    , current_vy_(0.0)
 {
 }
 
@@ -62,25 +65,42 @@ void GaitController::tick(std::array<Leg*, 4>& legs, int64_t now_ms)
     }
 
     double dt = (now_ms - last_time_ms_) * 0.001;
+    dt = std::clamp(dt, 0.001, 0.1);
     last_time_ms_ = now_ms;
 
-    float vx = target_vx_.load();
-    float vy = target_vy_.load();
+    float raw_vx = target_vx_.load();
+    float raw_vy = target_vy_.load();
 
     // Clampear la velocidad de consigna para evitar superar los límites cinemáticos (alcance de las patas)
-    // El alcance máximo es ~41 cm. Un paso máximo seguro de 8 cm (velocidad 0.08 m/s con período de 1.0s) es muy adecuado.
     static constexpr float MAX_SPEED = 0.15f; // m/s
-    vx = std::clamp(vx, -MAX_SPEED, MAX_SPEED);
-    vy = std::clamp(vy, -MAX_SPEED, MAX_SPEED);
+    raw_vx = std::clamp(raw_vx, -MAX_SPEED, MAX_SPEED);
+    raw_vy = std::clamp(raw_vy, -MAX_SPEED, MAX_SPEED);
 
-    bool walking = (std::abs(vx) > 0.001f || std::abs(vy) > 0.001f);
+    bool walking = (active_.load() && (std::abs(raw_vx) > 0.001f || std::abs(raw_vy) > 0.001f));
 
-    // Si no está activo y la velocidad es 0, y ya estamos parados en pose neutra (fase < epsilon), no hacemos nada.
-    if (!active_.load() && !walking && std::abs(phase_) < 1e-5) {
-        return;
+    double target_vx = walking ? static_cast<double>(raw_vx) : 0.0;
+    double target_vy = walking ? static_cast<double>(raw_vy) : 0.0;
+
+    // Rampa suave de aceleración y deceleración de velocidad (evita tirones)
+    double max_dv = MAX_ACCEL * dt;
+    if (current_vx_ < target_vx) {
+        current_vx_ = std::min(target_vx, current_vx_ + max_dv);
+    } else if (current_vx_ > target_vx) {
+        current_vx_ = std::max(target_vx, current_vx_ - max_dv);
     }
 
+    if (current_vy_ < target_vy) {
+        current_vy_ = std::min(target_vy, current_vy_ + max_dv);
+    } else if (current_vy_ > target_vy) {
+        current_vy_ = std::max(target_vy, current_vy_ - max_dv);
+    }
 
+    bool is_moving = (std::abs(current_vx_) > 1e-4 || std::abs(current_vy_) > 1e-4);
+
+    // Si no está activo y la velocidad ha decaído a 0, y ya estamos parados en pose neutra (fase < epsilon), no hacemos nada.
+    if (!walking && !is_moving && std::abs(phase_) < 1e-5) {
+        return;
+    }
 
     // Avanzar la fase de la marcha
     double omega = (2.0 * M_PI) / GAIT_PERIOD;
@@ -92,7 +112,7 @@ void GaitController::tick(std::array<Leg*, 4>& legs, int64_t now_ms)
     GaitType current_gait = gait_type_.load();
 
     // Rampa suave del factor de balanceo (sway_factor_) para evitar sacudidas
-    double target_sway = (active_.load() && walking) ? 1.0 : 0.0;
+    double target_sway = (walking || is_moving) ? 1.0 : 0.0;
     if (sway_factor_ < target_sway) {
         sway_factor_ = std::min(target_sway, sway_factor_ + dt * SWAY_RAMP_RATE);
     } else if (sway_factor_ > target_sway) {
@@ -107,9 +127,9 @@ void GaitController::tick(std::array<Leg*, 4>& legs, int64_t now_ms)
         dy_sway = -SWAY_AMPLITUDE_Y * sway_factor_ * std::cos(phase_);
     }
 
-    // Longitud del paso en X e Y
-    double Sx = vx * GAIT_PERIOD;
-    double Sy = vy * GAIT_PERIOD;
+    // Longitud del paso en X e Y (escalada con la velocidad en rampa)
+    double Sx = current_vx_ * GAIT_PERIOD;
+    double Sy = current_vy_ * GAIT_PERIOD;
 
     // Configuración según el tipo de marcha
     double offsets[4] = {0.0, 0.0, 0.0, 0.0};
@@ -176,10 +196,9 @@ void GaitController::tick(std::array<Leg*, 4>& legs, int64_t now_ms)
     }
 
     // ─── ALGORITMO DE FRENADO ULTRA-SUAVE (SOFT SETTLE) ───
-    // Si se ha pedido detener la marcha, esperamos a que la fase esté en una zona donde
-    // la pata en vuelo esté tocando el suelo.
-    // Esto garantiza que todas las patas tengan apoyo firme antes de clavar el robot.
-    if (!active_.load() && !walking) {
+    // Si se ha pedido detener la marcha y la velocidad ha decaído a cero por rampa:
+    // esperamos a que la pata en vuelo esté tocando el suelo para posar y cerrar la marcha.
+    if (!walking && !is_moving) {
         bool settle = false;
         if (current_gait == GaitType::CREEP) {
             double diff_0 = std::abs(phase_);
@@ -204,9 +223,13 @@ void GaitController::tick(std::array<Leg*, 4>& legs, int64_t now_ms)
         if (settle) {
             phase_ = 0.0;
             sway_factor_ = 0.0; // Resetear el factor de balanceo al estar parados
+            current_vx_ = 0.0;
+            current_vy_ = 0.0;
             for (int i = 0; i < 4; ++i) {
                 if (legs[i]) {
-                    legs[i]->goToBodyPosition(legs[i]->getInitialFootPosition(), STIFFNESS_Q1, STIFFNESS_Q2, STIFFNESS_Q3, true, true);
+                    // Usar direct = false para que la transición final a reposo
+                    // se ejecute con el perfil trapezoidal suave de setTarget, evitando tirones.
+                    legs[i]->goToBodyPosition(legs[i]->getInitialFootPosition(), STIFFNESS_Q1, STIFFNESS_Q2, STIFFNESS_Q3, true, false);
                 }
             }
         }

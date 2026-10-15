@@ -253,6 +253,28 @@ bool Tarantula::isAnyMotorOnline() const
     return false;
 }
 
+bool Tarantula::isAtRestPose(float tolerance_deg) const
+{
+    if (!feet_captured_ || sequence_active_.load()) {
+        return false;
+    }
+    for (Leg* leg : legs_) {
+        if (!leg) return false;
+        // Ángulos de diseño de la postura de reposo erguida: q1 = 0°, q2 = 20°, q3 = -100°
+        // Comprobar únicamente los motores que estén online
+        if (leg->isMotorOnline(1)) {
+            if (std::abs(leg->getJointAngle(1) - 0.0f) > tolerance_deg) return false;
+        }
+        if (leg->isMotorOnline(2)) {
+            if (std::abs(leg->getJointAngle(2) - 20.0f) > tolerance_deg) return false;
+        }
+        if (leg->isMotorOnline(3)) {
+            if (std::abs(leg->getJointAngle(3) - (-100.0f)) > tolerance_deg) return false;
+        }
+    }
+    return true;
+}
+
 // ─────────────────────────────────────────────────────────────
 //  HILO RX — lectura de tramas CAN
 // ─────────────────────────────────────────────────────────────

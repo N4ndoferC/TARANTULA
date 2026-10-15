@@ -306,6 +306,14 @@ bool Leg::isAnyMotorOnline() const
     return false;
 }
 
+bool Leg::isMotorOnline(int joint) const
+{
+    if (joint >= 1 && joint <= 3) {
+        return motor_[joint - 1].motor_online.load(std::memory_order_relaxed);
+    }
+    return false;
+}
+
 void Leg::sendIdleToAllMotors()
 {
     for (int j = 0; j < 3; ++j) {
@@ -330,28 +338,32 @@ void Leg::handleCanFrame(uint32_t can_id, const std::vector<uint8_t>& data)
         MotorController& ctrl = motor_[joint_idx];
         auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
-        ctrl.last_msg_time_ms.store(now_ms, std::memory_order_relaxed);
-
-        if (data.size() == 8) {
+            ctrl.last_msg_time_ms.store(now_ms, std::memory_order_relaxed);
+        
+        if (data.size() >= 6) {
             MWReceiver(0, can_id, const_cast<uint8_t*>(data.data()));
             MW_CMD_ID cmd = static_cast<MW_CMD_ID>(can_id & 0x1F);
 
-            // Comprobar errores en tiempo real
-            bool has_error = (ctrl.motorData.heartBeat.ErrorStatus.axisError != 0);
-            
-            if (!has_error) {
-                ctrl.motor_online.store(true, std::memory_order_relaxed);
-            } else {
-                ctrl.motor_online.store(false, std::memory_order_relaxed);
-                if (ctrl.active.load()) {
-                    ctrl.active.store(false);
-                    std::cerr << "[CRITICO] Motor " << (int)ctrl.node_id 
-                              << " reporta error hardware 0x" << std::hex 
-                              << ctrl.motorData.heartBeat.ErrorStatus.axisError 
-                              << std::dec << ". Desactivando.\n";
+            // Comprobar errores solo si la trama es un Heartbeat (cmd 1, que contiene axisError)
+            if (cmd == MW_HEARTBEAT_CMD) {
+                bool has_error = (ctrl.motorData.heartBeat.ErrorStatus.axisError != 0);
+                if (!has_error) {
+                    ctrl.motor_online.store(true, std::memory_order_relaxed);
+                } else {
+                    ctrl.motor_online.store(false, std::memory_order_relaxed);
+                    if (ctrl.active.load()) {
+                        ctrl.active.store(false);
+                        std::cerr << "[CRITICO] Motor " << (int)ctrl.node_id 
+                                  << " reporta error hardware 0x" << std::hex 
+                                  << ctrl.motorData.heartBeat.ErrorStatus.axisError 
+                                  << std::dec << ". Desactivando.\n";
+                    }
                 }
+            } else {
+                // Si el motor nos está respondiendo a MIT o Encoder, está online
+                ctrl.motor_online.store(true, std::memory_order_relaxed);
             }
-
+            
             if (cmd == MW_MIT_CONTROL_CMD) {
                 ctrl.update_from_mit_frame();
             } else if (cmd == MW_GET_ENCODER_ESTIMATES_CMD) {

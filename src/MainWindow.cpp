@@ -312,6 +312,21 @@ void MainWindow::initTable()
 
 void MainWindow::updateUI()
 {
+    if (pending_gait_start_) {
+        if (robot_ && !robot_->isSequenceActive()) {
+            if (isRobotInRestPose()) {
+                pending_gait_start_ = false;
+                pending_gait_retries_ = 0;
+                if (keyUpPressed_ || keyDownPressed_ || keyLeftPressed_ || keyRightPressed_) {
+                    updateTrotVelocity();
+                }
+            } else if (++pending_gait_retries_ > 5) {
+                pending_gait_start_ = false;
+                pending_gait_retries_ = 0;
+            }
+        }
+    }
+
     updateStatusLeds();
     updateMotorTable();
     updateSpiderWidget();
@@ -406,16 +421,22 @@ void MainWindow::on_btnStartAll_clicked()
 
 void MainWindow::on_btnStopAll_clicked()
 {
+    pending_gait_start_ = false;
+    pending_gait_retries_ = 0;
     robot_->disableAllLegs();
 }
 
 void MainWindow::on_btnStandUp_clicked()
 {
+    pending_gait_start_ = false;
+    pending_gait_retries_ = 0;
     robot_->standUp();
 }
 
 void MainWindow::on_btnSitDown_clicked()
 {
+    pending_gait_start_ = false;
+    pending_gait_retries_ = 0;
     robot_->sitDown();
 }
 
@@ -607,6 +628,24 @@ void MainWindow::on_btnResetPose_clicked()
     ui->lblBodyPitch->setText("0°");
     ui->lblBodyYaw->setText("0°");
 
+    if (sliderLegX_ && sliderLegY_ && sliderLegZ_) {
+        sliderLegX_->blockSignals(true);
+        sliderLegY_->blockSignals(true);
+        sliderLegZ_->blockSignals(true);
+
+        sliderLegX_->setValue(495);
+        sliderLegY_->setValue(0);
+        sliderLegZ_->setValue(0);
+
+        sliderLegX_->blockSignals(false);
+        sliderLegY_->blockSignals(false);
+        sliderLegZ_->blockSignals(false);
+
+        if (lblLegX_) lblLegX_->setText("495 mm");
+        if (lblLegY_) lblLegY_->setText("0 mm");
+        if (lblLegZ_) lblLegZ_->setText("0 mm");
+    }
+
     robot_->standUp();
 }
 
@@ -624,10 +663,20 @@ void MainWindow::updateTrotVelocity()
 
     if (walking) {
         if (!robot_->isGaitActive()) {
+            if (!isRobotInRestPose()) {
+                if (!pending_gait_start_) {
+                    pending_gait_start_ = true;
+                    pending_gait_retries_ = 0;
+                    on_btnResetPose_clicked();
+                }
+                return;
+            }
             robot_->startGait();
         }
         robot_->setGaitVelocity(vx, vy);
     } else {
+        pending_gait_start_ = false;
+        pending_gait_retries_ = 0;
         if (robot_->isGaitActive()) {
             robot_->stopGait();
         }
@@ -796,4 +845,29 @@ void MainWindow::onComPortChanged(int index)
     if (g_comm) {
         g_comm->reconnectWithPort(port_name.toStdString());
     }
+}
+
+bool MainWindow::isRobotInRestPose() const
+{
+    // 1. Comprobar que los sliders del cuerpo están en su posición neutra (0)
+    bool body_sliders_at_zero = (last_valid_body_x_ == 0 &&
+                                 last_valid_body_y_ == 0 &&
+                                 last_valid_body_z_ == 0 &&
+                                 last_valid_body_roll_ == 0 &&
+                                 last_valid_body_pitch_ == 0 &&
+                                 last_valid_body_yaw_ == 0);
+
+    if (!body_sliders_at_zero) return false;
+
+    // 2. Comprobar que los sliders de pata individual están en nominal
+    if (sliderLegX_ && sliderLegY_ && sliderLegZ_) {
+        if (sliderLegX_->value() != 495 || sliderLegY_->value() != 0 || sliderLegZ_->value() != 0) {
+            return false;
+        }
+    }
+
+    // 3. Comprobar que el robot está inicializado, erguido y en reposo físico
+    if (!robot_ || !robot_->isAtRestPose()) return false;
+
+    return true;
 }

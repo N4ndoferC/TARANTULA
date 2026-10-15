@@ -40,6 +40,7 @@ public:
     void disableJoint(int joint);
     void tick(int64_t now_ms, uint64_t cycle_count);
     bool isAnyMotorOnline() const;
+    bool isMotorOnline(int joint) const;
     void sendIdleToAllMotors();
     void handleCanFrame(uint32_t can_id, const std::vector<uint8_t>& data);
 

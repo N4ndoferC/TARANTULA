@@ -35,10 +35,13 @@ private:
     double phase_{0.0};
     int64_t last_time_ms_{0};
     double sway_factor_{0.0};                      // Factor de atenuación dinámico del balanceo
+    double current_vx_{0.0};                       // Velocidad lineal filtrada en X
+    double current_vy_{0.0};                       // Velocidad lineal filtrada en Y
 
     // Constantes de diseño estables
     static constexpr double GAIT_PERIOD = 4.0;     // Ciclo completo en segundos (4s solicitado por el usuario)
     static constexpr double SWING_HEIGHT = 0.05;    // Altura de vuelo del pie en metros (5 cm)
+    static constexpr double MAX_ACCEL = 0.15;      // Aceleración máxima permitida (m/s^2) para evitar tirones de marcha
     
     // Parámetros del balanceo activo (Body Sway)
     static constexpr double SWAY_AMPLITUDE_X = 0.05; // Amplitud del balanceo en X (3.5 cm)

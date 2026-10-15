@@ -42,6 +42,9 @@ public:
     Leg& getLeg(int leg_id);                 
     bool isAnyMotorOnline() const;
     bool isRunning() const { return running_.load(); }
+    bool isSequenceActive() const { return sequence_active_.load(); }
+    bool isFeetCaptured() const { return feet_captured_; }
+    bool isAtRestPose(float tolerance_deg = 10.0f) const;
 
 private:
    

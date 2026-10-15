@@ -109,4 +109,8 @@ private:
     int last_valid_body_roll_{0};
     int last_valid_body_pitch_{0};
     int last_valid_body_yaw_{0};
+
+    bool isRobotInRestPose() const;
+    bool pending_gait_start_{false};
+    int  pending_gait_retries_{0};
 };
